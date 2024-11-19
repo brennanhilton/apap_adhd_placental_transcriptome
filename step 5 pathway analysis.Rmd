@@ -1,0 +1,250 @@
+---
+title: "Untitled"
+output: html_document
+date: "2023-10-24"
+editor_options: 
+  chunk_output_type: console
+---
+
+---
+title: "Untitled"
+output: html_document
+date: "2023-10-17"
+editor_options: 
+  chunk_output_type: console
+---
+
+No interaction
+```{r}
+rubins_res_adj = read_csv("rubins_res_adj_apap_174_by_sex_apap_effect_no_int.csv") %>% mutate(ENTREZID = as.character(ENTREZID))%>% 
+  filter(!is.na(ENTREZID))
+
+remove = rubins_res_adj %>% filter(duplicated(ENTREZID)) %>% pull(ENTREZID)
+rubins_res_adj = rubins_res_adj %>%
+  filter(!ENTREZID %in% remove)
+
+# Build gene index for kegg and mutsigdb
+library(EGSEA)
+gs.annots.both = buildIdx(entrezIDs = rubins_res_adj$ENTREZID, species = "human",
+msigdb.gsets = "h", kegg.exclude = c("Disease"))
+
+# make a names vector of the t statistics from RNAseqcovarImpute. Names are entrezid
+y = rubins_res_adj$rubins_t_bayes
+y_names = rubins_res_adj$ENTREZID
+y = setNames(y, y_names)
+
+# Camera
+library(limma)
+camera_res_kegg = cameraPR(statistic = y, index = gs.annots.both$kegg$original)
+camera_res_kegg$pathway = rownames(camera_res_kegg)
+camera_res_kegg$Method = "Camera"
+
+# Gage
+
+library(gage)
+MI_res = rubins_res_adj %>% 
+  dplyr::select(ENTREZID, rubins_t_bayes)
+
+
+MI_res2 = MI_res %>% dplyr::select(rubins_t_bayes)
+MI_res2 = as.matrix(MI_res2)
+rownames(MI_res2)<-MI_res$ENTREZID
+
+
+fc.kegg.p <- gage(MI_res2, gsets = gs.annots.both$kegg$original, ref = NULL, samp = NULL)
+gage_res_kegg = fc.kegg.p$greater %>% rbind(fc.kegg.p$less) 
+
+gage_names_kegg = rownames(gage_res_kegg)
+gage_res_kegg = gage_res_kegg %>% 
+  as_tibble() %>% 
+  mutate(pathway = gage_names_kegg) %>% 
+  arrange(q.val) %>% 
+  mutate(Direction = ifelse(stat.mean>0, "Up", "Down")) %>% 
+  dplyr::rename(PValue = p.val, FDR = q.val) %>% 
+  dplyr::select(Direction, PValue, FDR, pathway, everything()) %>% 
+  mutate(Method = "GAGE")
+
+# Save
+# get a list of the pathways significant in 
+gage_res_kegg2 = gage_res_kegg %>% 
+  dplyr::select(Method, Direction, PValue, FDR, pathway, stat.mean)%>% 
+  filter(FDR <0.05) %>% pull(pathway)
+
+camera_res_kegg2 = camera_res_kegg %>% 
+  dplyr::select(Method, Direction, PValue, FDR, pathway)%>% 
+  filter(FDR <0.05) %>% pull(pathway)
+
+final_kegg = tibble(pathway = c(camera_res_kegg2, gage_res_kegg2)) %>% distinct()
+
+# get results just for those significant pathways
+gage_res_kegg2 = gage_res_kegg %>% 
+  dplyr::select(Method, Direction, PValue, FDR, pathway, stat.mean) %>% 
+  filter(pathway %in% final_kegg$pathway)%>% 
+  group_by(pathway) %>% filter(PValue == min(PValue))
+
+camera_res_kegg2 = camera_res_kegg %>% 
+  dplyr::select(Method, Direction, PValue, FDR, pathway) %>% 
+  mutate(stat.mean = NA) %>% 
+  filter(pathway %in% final_kegg$pathway)
+
+final_kegg = camera_res_kegg2 %>% rbind(gage_res_kegg2)
+
+write_csv(final_kegg, "apap_enrichment_kegg_tstat_no_int.csv")
+```
+
+Males
+```{r}
+rubins_res_adj = read_csv("rubins_res_adj_apap_174_by_sex_apap_effect_males.csv") %>% mutate(ENTREZID = as.character(ENTREZID))%>% 
+  filter(!is.na(ENTREZID))
+
+remove = rubins_res_adj %>% filter(duplicated(ENTREZID)) %>% pull(ENTREZID)
+rubins_res_adj = rubins_res_adj %>%
+  filter(!ENTREZID %in% remove)
+
+# Build gene index for kegg and mutsigdb
+library(EGSEA)
+gs.annots.both = buildIdx(entrezIDs = rubins_res_adj$ENTREZID, species = "human",
+msigdb.gsets = "h", kegg.exclude = c("Disease"))
+
+# make a names vector of the t statistics from RNAseqcovarImpute. Names are entrezid
+y = rubins_res_adj$rubins_t_bayes
+y_names = rubins_res_adj$ENTREZID
+y = setNames(y, y_names)
+
+# Camera
+library(limma)
+camera_res_kegg = cameraPR(statistic = y, index = gs.annots.both$kegg$original)
+camera_res_kegg$pathway = rownames(camera_res_kegg)
+camera_res_kegg$Method = "Camera"
+
+# Gage
+
+library(gage)
+MI_res = rubins_res_adj %>% 
+  dplyr::select(ENTREZID, rubins_t_bayes)
+
+
+MI_res2 = MI_res %>% dplyr::select(rubins_t_bayes)
+MI_res2 = as.matrix(MI_res2)
+rownames(MI_res2)<-MI_res$ENTREZID
+
+
+fc.kegg.p <- gage(MI_res2, gsets = gs.annots.both$kegg$original, ref = NULL, samp = NULL)
+gage_res_kegg = fc.kegg.p$greater %>% rbind(fc.kegg.p$less) 
+
+gage_names_kegg = rownames(gage_res_kegg)
+gage_res_kegg = gage_res_kegg %>% 
+  as_tibble() %>% 
+  mutate(pathway = gage_names_kegg) %>% 
+  arrange(q.val) %>% 
+  mutate(Direction = ifelse(stat.mean>0, "Up", "Down")) %>% 
+  dplyr::rename(PValue = p.val, FDR = q.val) %>% 
+  dplyr::select(Direction, PValue, FDR, pathway, everything()) %>% 
+  mutate(Method = "GAGE")
+
+# Save
+# get a list of the pathways significant in 
+gage_res_kegg2 = gage_res_kegg %>% 
+  dplyr::select(Method, Direction, PValue, FDR, pathway, stat.mean)%>% 
+  filter(FDR <0.05) %>% pull(pathway)
+
+camera_res_kegg2 = camera_res_kegg %>% 
+  dplyr::select(Method, Direction, PValue, FDR, pathway)%>% 
+  filter(FDR <0.05) %>% pull(pathway)
+
+final_kegg = tibble(pathway = c(camera_res_kegg2, gage_res_kegg2)) %>% distinct()
+
+# get results just for those significant pathways
+gage_res_kegg2 = gage_res_kegg %>% 
+  dplyr::select(Method, Direction, PValue, FDR, pathway, stat.mean) %>% 
+  filter(pathway %in% final_kegg$pathway)%>% 
+  group_by(pathway) %>% filter(PValue == min(PValue))
+
+camera_res_kegg2 = camera_res_kegg %>% 
+  dplyr::select(Method, Direction, PValue, FDR, pathway) %>% 
+  mutate(stat.mean = NA) %>% 
+  filter(pathway %in% final_kegg$pathway)
+
+final_kegg = camera_res_kegg2 %>% rbind(gage_res_kegg2)
+
+write_csv(final_kegg, "apap_enrichment_kegg_tstat_males.csv")
+```
+
+Females
+```{r}
+rubins_res_adj = read_csv("rubins_res_adj_apap_174_by_sex_apap_effect_females.csv") %>% mutate(ENTREZID = as.character(ENTREZID))%>% 
+  filter(!is.na(ENTREZID))
+
+remove = rubins_res_adj %>% filter(duplicated(ENTREZID)) %>% pull(ENTREZID)
+rubins_res_adj = rubins_res_adj %>%
+  filter(!ENTREZID %in% remove)
+
+# Build gene index for kegg and mutsigdb
+library(EGSEA)
+gs.annots.both = buildIdx(entrezIDs = rubins_res_adj$ENTREZID, species = "human",
+msigdb.gsets = "h", kegg.exclude = c("Disease"))
+
+# make a names vector of the t statistics from RNAseqcovarImpute. Names are entrezid
+y = rubins_res_adj$rubins_t_bayes
+y_names = rubins_res_adj$ENTREZID
+y = setNames(y, y_names)
+
+# Camera
+library(limma)
+camera_res_kegg = cameraPR(statistic = y, index = gs.annots.both$kegg$original)
+camera_res_kegg$pathway = rownames(camera_res_kegg)
+camera_res_kegg$Method = "Camera"
+
+# Gage
+
+library(gage)
+MI_res = rubins_res_adj %>% 
+  dplyr::select(ENTREZID, rubins_t_bayes)
+
+
+MI_res2 = MI_res %>% dplyr::select(rubins_t_bayes)
+MI_res2 = as.matrix(MI_res2)
+rownames(MI_res2)<-MI_res$ENTREZID
+
+
+fc.kegg.p <- gage(MI_res2, gsets = gs.annots.both$kegg$original, ref = NULL, samp = NULL)
+gage_res_kegg = fc.kegg.p$greater %>% rbind(fc.kegg.p$less) 
+
+gage_names_kegg = rownames(gage_res_kegg)
+gage_res_kegg = gage_res_kegg %>% 
+  as_tibble() %>% 
+  mutate(pathway = gage_names_kegg) %>% 
+  arrange(q.val) %>% 
+  mutate(Direction = ifelse(stat.mean>0, "Up", "Down")) %>% 
+  dplyr::rename(PValue = p.val, FDR = q.val) %>% 
+  dplyr::select(Direction, PValue, FDR, pathway, everything()) %>% 
+  mutate(Method = "GAGE")
+
+# Save
+# get a list of the pathways significant in 
+gage_res_kegg2 = gage_res_kegg %>% 
+  dplyr::select(Method, Direction, PValue, FDR, pathway, stat.mean)%>% 
+  filter(FDR <0.05) %>% pull(pathway)
+
+camera_res_kegg2 = camera_res_kegg %>% 
+  dplyr::select(Method, Direction, PValue, FDR, pathway)%>% 
+  filter(FDR <0.05) %>% pull(pathway)
+
+final_kegg = tibble(pathway = c(camera_res_kegg2, gage_res_kegg2)) %>% distinct()
+
+# get results just for those significant pathways
+gage_res_kegg2 = gage_res_kegg %>% 
+  dplyr::select(Method, Direction, PValue, FDR, pathway, stat.mean) %>% 
+  filter(pathway %in% final_kegg$pathway)%>% 
+  group_by(pathway) %>% filter(PValue == min(PValue))
+
+camera_res_kegg2 = camera_res_kegg %>% 
+  dplyr::select(Method, Direction, PValue, FDR, pathway) %>% 
+  mutate(stat.mean = NA) %>% 
+  filter(pathway %in% final_kegg$pathway)
+
+final_kegg = camera_res_kegg2 %>% rbind(gage_res_kegg2)
+
+write_csv(final_kegg, "apap_enrichment_kegg_tstat_females.csv")
+```
+

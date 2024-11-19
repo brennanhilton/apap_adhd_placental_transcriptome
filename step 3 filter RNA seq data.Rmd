@@ -1,0 +1,77 @@
+---
+title: "Untitled"
+output: html_document
+date: "2023-10-24"
+editor_options: 
+  chunk_output_type: console
+---
+
+---
+title: "Untitled"
+output: html_document
+date: "2023-10-17"
+editor_options: 
+  chunk_output_type: console
+---
+
+Load the covariate data and filter the rna seq data to the matching participants
+```{r}
+library(tidyverse)
+library(RNAseqCovarImpute)
+data_mi_rna = readRDS("data_mi_rna.RDS")
+library(edgeR)
+library(BiocStyle)
+library(xtable)
+library(tximport)
+library(Glimma)
+library(org.Hs.eg.db)
+
+load("O:/Maternal stress placental transcriptome/candle_20200226.Rdata")
+
+candlebatches <- batches
+annot$ENSEMBL <- as.character(annot$ENSEMBL)
+annot$ENTREZID <- mapIds(org.Hs.eg.db, annot$ENSEMBL, "ENTREZID","ENSEMBL")
+protcode <- c("protein_coding","polymorphic_pseudogene", "lncRNA",
+              grep("IG_[A-Z]_gene", names(table(annot$BIOTYPE)), value = TRUE),
+              grep("TR_[A-Z]_gene", names(table(annot$BIOTYPE)), value = TRUE))
+protind <- annot$BIOTYPE %in% protcode
+
+
+## get counts and annotation and put in a DGEList
+
+candlects <- candle_lengthScaledTPM$counts
+candlects <- candlects[protind,]
+annot <- annot[protind,]
+
+all_counts = candlects
+ncol(all_counts)
+
+
+rownames(all_counts) <- annot$ENSEMBL
+ncol(all_counts)
+nrow(all_counts)
+
+all_counts = all_counts[,data_mi_rna$pathways_id]
+ncol(all_counts)
+
+alldg_full <- DGEList(all_counts, genes = annot)
+
+# Randomize the order of gene identifiers
+annot <- alldg_full$genes
+set.seed(2023)
+annot <- annot[sample(seq_len(nrow(annot))), ]
+# Match order of the genes in the DGE to the randomized order of genes in the annotation
+alldg_full <- alldg_full[annot$ENSEMBL, ]
+
+## Adjust to get somewhere around 10 counts per gene, and the correct number of samples
+
+keep <- rowMeans(cpm(alldg_full, log = TRUE)) > 0
+
+alldg_full <- alldg_full[keep, , keep.lib.sizes = FALSE]
+
+alldg_full <- calcNormFactors(alldg_full)
+nrow(alldg_full)
+ncol(alldg_full)
+
+saveRDS(alldg_full, "alldg_full_174.RDS")
+```

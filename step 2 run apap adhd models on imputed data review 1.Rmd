@@ -1,0 +1,1280 @@
+---
+title: "Untitled"
+output: html_document
+date: "2023-09-25"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(tidyverse)
+library(mice)
+library(foreach)
+
+data_mice = readRDS("./acetaminophen candle/data_mice_307_all_outcomes_sles_sex_strat.RDS")
+data_mice_long <- complete(data_mice, action = "long", include = TRUE)
+
+# We only want to analyze task based outcomes, fl_agecor_st_score (NIH Flanker) and digit_scale (WISK digit span) that are valid or questionable per ECHO PATHWAYS guidelines. Here We get participant ids for those with valid or questionable data for those outcomes. We also pull ids for kids with CBCL data. 
+data_mice_long %>% filter(.imp == 0,
+                          !is.na(fl_agecor_st_score)) %>% nrow()
+
+data_mice_long %>% filter(.imp == 0,
+                          !is.na(digit_scale)) %>% nrow()
+
+flanker_ids = data_mice_long %>% filter(.imp == 0,
+                                        flanker_valid %in% c("Valid", "Questionable")) %>% 
+  pull(.id)
+
+digit_ids = data_mice_long %>% filter(.imp == 0,
+                                      digit_valid %in% c("Valid", "Questionable"))%>% 
+  pull(.id)
+
+cbcl_ids = data_mice_long %>% filter(.imp == 0,
+                                     !is.na(p1_externalrawscore)) %>% 
+  pull(.id)
+
+flanker_mice_long = data_mice_long %>% filter(.id %in% flanker_ids)
+flanker_mice = as.mids(flanker_mice_long)
+
+digit_mice_long = data_mice_long %>% filter(.id %in% digit_ids)
+digit_mice = as.mids(digit_mice_long)
+
+cbcl_mice_long = data_mice_long %>% filter(.id %in% cbcl_ids)
+cbcl_mice = as.mids(cbcl_mice_long)
+```
+
+
+```{r}
+# crude models for review response 1
+
+data_original = complete(data_mice, 0)
+glm1 = glm(healthbehv_q2_addadhd ~ apap_detect, family = binomial("logit"), data = data_original)
+broom::tidy(glm1)
+
+#####
+##### ADHD
+#####
+
+glm_pooled = glm(healthbehv_q2_addadhd ~ apap_detect, family = binomial("logit"), data = data_original)
+pool1 = crude_adhd = broom::tidy(glm_pooled, conf.int = T, exp = F)%>%
+  mutate(OR = paste0(round(exp(estimate), 2), " (", round(exp(conf.low), 2), " - ", round(exp(conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(term != "(Intercept)") %>% 
+  mutate(term = "Acetaminophen (yes vs no) among both sexes") %>% 
+  mutate(outcome = "ADHD Diagnosis",
+         sex_ref = "NA")
+#####
+##### ADHD meds
+#####
+
+glm_pooled = glm(adhd_med ~ apap_detect, family = binomial("logit"), data = data_original)
+pool2 = broom::tidy(glm_pooled, conf.int = T, exp = F)%>%
+  mutate(OR = paste0(round(exp(estimate), 2), " (", round(exp(conf.low), 2), " - ", round(exp(conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(term != "(Intercept)") %>% 
+  mutate(term = "Acetaminophen (yes vs no) among both sexes") %>% 
+  mutate(outcome = "Taking ADHD Medications",
+         sex_ref = "NA")
+
+#####
+##### cbcl adhd
+#####
+library(lmtest)
+library(sandwich)
+lm_pooled = lm(p1_dsm_adhd_score ~ apap_detect, data = data_original)
+robust_se <- coeftest(lm_pooled, vcov = vcovHC(lm_pooled)) 
+pool3 <- data.frame(
+  term = rownames(robust_se),
+  estimate = robust_se[, 1],
+  std.error = robust_se[, 2],
+  statistic = robust_se[, 3],
+  p.value = robust_se[, 4]) %>%
+  mutate(
+    conf.low = estimate - qt(0.975, df = df.residual(lm_pooled)) * std.error,
+    conf.high = estimate + qt(0.975, df = df.residual(lm_pooled)) * std.error) %>% 
+  mutate(OR = paste0(round((estimate), 2), " (", round((conf.low), 2), " - ", round((conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(term != "(Intercept)") %>% 
+  mutate(term = "Acetaminophen (yes vs no) among both sexes") %>% 
+  mutate(outcome = "CBCL ADHD-DSM5 Score",
+         sex_ref = "NA")
+
+#####
+##### cbcl p1_externalrawscore
+#####
+
+lm_pooled = lm(p1_externalrawscore ~ apap_detect, data = data_original)
+robust_se <- coeftest(lm_pooled, vcov = vcovHC(lm_pooled)) 
+pool4 <- data.frame(
+  term = rownames(robust_se),
+  estimate = robust_se[, 1],
+  std.error = robust_se[, 2],
+  statistic = robust_se[, 3],
+  p.value = robust_se[, 4]) %>%
+  mutate(
+    conf.low = estimate - qt(0.975, df = df.residual(lm_pooled)) * std.error,
+    conf.high = estimate + qt(0.975, df = df.residual(lm_pooled)) * std.error) %>% 
+  mutate(OR = paste0(round((estimate), 2), " (", round((conf.low), 2), " - ", round((conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(term != "(Intercept)") %>% 
+  mutate(term = "Acetaminophen (yes vs no) among both sexes") %>% 
+  mutate(outcome = "CBCL Externalizing Score",
+         sex_ref = "NA")
+
+#####
+##### fl_agecor_st_score
+#####
+
+lm_pooled = lm(fl_agecor_st_score ~ apap_detect, data = data_original)
+pool5 = broom::tidy(lm_pooled, conf.int = T, exp = F)%>%
+  mutate(OR = paste0(round((estimate), 2), " (", round((conf.low), 2), " - ", round((conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(term != "(Intercept)") %>% 
+  mutate(term = "Acetaminophen (yes vs no) among both sexes") %>% 
+  mutate(outcome = "NIH Flanker",
+         sex_ref = "NA")
+#####
+##### digit_scale
+#####
+
+lm_pooled = lm(digit_scale ~ apap_detect, data = data_original)
+pool6 = broom::tidy(lm_pooled, conf.int = T, exp = F)%>%
+  mutate(OR = paste0(round((estimate), 2), " (", round((conf.low), 2), " - ", round((conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(term != "(Intercept)") %>% 
+  mutate(term = "Acetaminophen (yes vs no) among both sexes") %>% 
+  mutate(outcome = "Digit Span",
+         sex_ref = "NA")
+
+pooled = pool1 %>% rbind(pool2)%>% rbind(pool3)%>% rbind(pool4)%>% rbind(pool5)%>% rbind(pool6)
+
+
+###################################
+###################################
+#### Sex interact female reference
+###################################
+###################################
+
+#####
+##### ADHD
+#####
+
+glm_female = glm(healthbehv_q2_addadhd ~ apap_detect*h_c_sex, family = binomial("logit"), data = data_original)
+female1 = broom::tidy(glm_female, conf.int = T, exp = F)%>%
+  mutate(OR = paste0(round(exp(estimate), 2), " (", round(exp(conf.low), 2), " - ", round(exp(conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(!term %in% c("(Intercept)", "h_c_sexMale")) %>% 
+  mutate(term = case_when(term == "apap_detectYes"~"Acetaminophen (yes vs no) among females",
+                          term == "apap_detectYes:h_c_sexMale"~ "Interaction: acetaminophen yes * sex male")) %>% 
+  mutate(outcome = "ADHD Diagnosis",
+         sex_ref = "Female")
+#####
+##### ADHD meds
+#####
+
+glm_female = glm(adhd_med ~ apap_detect*h_c_sex, family = binomial("logit"), data = data_original)
+female2 = broom::tidy(glm_female, conf.int = T, exp = F)%>%
+  mutate(OR = paste0(round(exp(estimate), 2), " (", round(exp(conf.low), 2), " - ", round(exp(conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(!term %in% c("(Intercept)", "h_c_sexMale")) %>% 
+  mutate(term = case_when(term == "apap_detectYes"~"Acetaminophen (yes vs no) among females",
+                          term == "apap_detectYes:h_c_sexMale"~ "Interaction: acetaminophen yes * sex male")) %>% 
+  mutate(outcome = "Taking ADHD Medications",
+         sex_ref = "Female")
+
+#####
+##### cbcl adhd
+#####
+library(lmtest)
+lm_female = lm(p1_dsm_adhd_score ~ apap_detect*h_c_sex, data = data_original)
+robust_se <- coeftest(lm_female, vcov = vcovHC(lm_female)) 
+female3 <- data.frame(
+  term = rownames(robust_se),
+  estimate = robust_se[, 1],
+  std.error = robust_se[, 2],
+  statistic = robust_se[, 3],
+  p.value = robust_se[, 4]) %>%
+  mutate(
+    conf.low = estimate - qt(0.975, df = df.residual(lm_female)) * std.error,
+    conf.high = estimate + qt(0.975, df = df.residual(lm_female)) * std.error) %>% 
+  mutate(OR = paste0(round((estimate), 2), " (", round((conf.low), 2), " - ", round((conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(!term %in% c("(Intercept)", "h_c_sexMale")) %>% 
+  mutate(term = case_when(term == "apap_detectYes"~"Acetaminophen (yes vs no) among females",
+                          term == "apap_detectYes:h_c_sexMale"~ "Interaction: acetaminophen yes * sex male")) %>% 
+  mutate(outcome = "CBCL ADHD-DSM5 Score",
+         sex_ref = "Female")
+
+#####
+##### cbcl p1_externalrawscore
+#####
+
+lm_female = lm(p1_externalrawscore ~ apap_detect*h_c_sex, data = data_original)
+robust_se <- coeftest(lm_female, vcov = vcovHC(lm_female)) 
+female4 <- data.frame(
+  term = rownames(robust_se),
+  estimate = robust_se[, 1],
+  std.error = robust_se[, 2],
+  statistic = robust_se[, 3],
+  p.value = robust_se[, 4]) %>%
+  mutate(
+    conf.low = estimate - qt(0.975, df = df.residual(lm_female)) * std.error,
+    conf.high = estimate + qt(0.975, df = df.residual(lm_female)) * std.error) %>% 
+  mutate(OR = paste0(round((estimate), 2), " (", round((conf.low), 2), " - ", round((conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(!term %in% c("(Intercept)", "h_c_sexMale")) %>% 
+  mutate(term = case_when(term == "apap_detectYes"~"Acetaminophen (yes vs no) among females",
+                          term == "apap_detectYes:h_c_sexMale"~ "Interaction: acetaminophen yes * sex male")) %>% 
+  mutate(outcome = "CBCL Externalizing Score",
+         sex_ref = "Female")
+
+#####
+##### fl_agecor_st_score
+#####
+
+lm_female = lm(fl_agecor_st_score ~ apap_detect*h_c_sex, data = data_original)
+female5 = broom::tidy(lm_female, conf.int = T, exp = F)%>%
+  mutate(OR = paste0(round((estimate), 2), " (", round((conf.low), 2), " - ", round((conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(!term %in% c("(Intercept)", "h_c_sexMale")) %>% 
+  mutate(term = case_when(term == "apap_detectYes"~"Acetaminophen (yes vs no) among females",
+                          term == "apap_detectYes:h_c_sexMale"~ "Interaction: acetaminophen yes * sex male")) %>% 
+  mutate(outcome = "NIH Flanker",
+         sex_ref = "Female")
+#####
+##### digit_scale
+#####
+
+lm_female = lm(digit_scale ~ apap_detect*h_c_sex, data = data_original)
+female6 = broom::tidy(lm_female, conf.int = T, exp = F)%>%
+  mutate(OR = paste0(round((estimate), 2), " (", round((conf.low), 2), " - ", round((conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(!term %in% c("(Intercept)", "h_c_sexMale")) %>% 
+  mutate(term = case_when(term == "apap_detectYes"~"Acetaminophen (yes vs no) among females",
+                          term == "apap_detectYes:h_c_sexMale"~ "Interaction: acetaminophen yes * sex male")) %>% 
+  mutate(outcome = "Digit Span",
+         sex_ref = "Female")
+
+female = female1 %>% rbind(female2)%>% rbind(female3)%>% rbind(female4)%>% rbind(female5)%>% rbind(female6) %>% arrange(term)
+
+
+###################################
+###################################
+#### Sex interact male reference
+###################################
+###################################
+
+data_original = data_original%>% mutate(h_c_sex = relevel(h_c_sex, ref = "Male"))
+
+#####
+##### ADHD
+#####
+
+glm_male = glm(healthbehv_q2_addadhd ~ apap_detect*h_c_sex, family = binomial("logit"), data = data_original)
+male1 = broom::tidy(glm_male, conf.int = T, exp = F)%>%
+  mutate(OR = paste0(round(exp(estimate), 2), " (", round(exp(conf.low), 2), " - ", round(exp(conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(!term %in% c("(Intercept)", "h_c_sexFemale")) %>% 
+  mutate(term = case_when(term == "apap_detectYes"~"Acetaminophen (yes vs no) among males",
+                          term == "apap_detectYes:h_c_sexFemale"~ "Interaction: acetaminophen yes * sex male")) %>% 
+  mutate(outcome = "ADHD Diagnosis",
+         sex_ref = "Male")
+#####
+##### ADHD meds
+#####
+
+glm_male = glm(adhd_med ~ apap_detect*h_c_sex, family = binomial("logit"), data = data_original)
+male2 = broom::tidy(glm_male, conf.int = T, exp = F)%>%
+  mutate(OR = paste0(round(exp(estimate), 2), " (", round(exp(conf.low), 2), " - ", round(exp(conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(!term %in% c("(Intercept)", "h_c_sexFemale")) %>% 
+  mutate(term = case_when(term == "apap_detectYes"~"Acetaminophen (yes vs no) among males",
+                          term == "apap_detectYes:h_c_sexFemale"~ "Interaction: acetaminophen yes * sex male")) %>% 
+  mutate(outcome = "Taking ADHD Medications",
+         sex_ref = "Male")
+
+#####
+##### cbcl adhd
+#####
+library(lmtest)
+lm_male = lm(p1_dsm_adhd_score ~ apap_detect*h_c_sex, data = data_original)
+robust_se <- coeftest(lm_male, vcov = vcovHC(lm_male)) 
+male3 <- data.frame(
+  term = rownames(robust_se),
+  estimate = robust_se[, 1],
+  std.error = robust_se[, 2],
+  statistic = robust_se[, 3],
+  p.value = robust_se[, 4]) %>%
+  mutate(
+    conf.low = estimate - qt(0.975, df = df.residual(lm_male)) * std.error,
+    conf.high = estimate + qt(0.975, df = df.residual(lm_male)) * std.error) %>% 
+  mutate(OR = paste0(round((estimate), 2), " (", round((conf.low), 2), " - ", round((conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(!term %in% c("(Intercept)", "h_c_sexFemale")) %>% 
+  mutate(term = case_when(term == "apap_detectYes"~"Acetaminophen (yes vs no) among males",
+                          term == "apap_detectYes:h_c_sexFemale"~ "Interaction: acetaminophen yes * sex male")) %>% 
+  mutate(outcome = "CBCL ADHD-DSM5 Score",
+         sex_ref = "Male")
+
+#####
+##### cbcl p1_externalrawscore
+#####
+
+lm_male = lm(p1_externalrawscore ~ apap_detect*h_c_sex, data = data_original)
+robust_se <- coeftest(lm_male, vcov = vcovHC(lm_male)) 
+male4 <- data.frame(
+  term = rownames(robust_se),
+  estimate = robust_se[, 1],
+  std.error = robust_se[, 2],
+  statistic = robust_se[, 3],
+  p.value = robust_se[, 4]) %>%
+  mutate(
+    conf.low = estimate - qt(0.975, df = df.residual(lm_male)) * std.error,
+    conf.high = estimate + qt(0.975, df = df.residual(lm_male)) * std.error) %>% 
+  mutate(OR = paste0(round((estimate), 2), " (", round((conf.low), 2), " - ", round((conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(!term %in% c("(Intercept)", "h_c_sexFemale")) %>% 
+  mutate(term = case_when(term == "apap_detectYes"~"Acetaminophen (yes vs no) among males",
+                          term == "apap_detectYes:h_c_sexFemale"~ "Interaction: acetaminophen yes * sex male")) %>% 
+  mutate(outcome = "CBCL Externalizing Score",
+         sex_ref = "Male")
+
+#####
+##### fl_agecor_st_score
+#####
+
+lm_male = lm(fl_agecor_st_score ~ apap_detect*h_c_sex, data = data_original)
+male5 = broom::tidy(lm_male, conf.int = T, exp = F)%>%
+  mutate(OR = paste0(round((estimate), 2), " (", round((conf.low), 2), " - ", round((conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(!term %in% c("(Intercept)", "h_c_sexFemale")) %>% 
+  mutate(term = case_when(term == "apap_detectYes"~"Acetaminophen (yes vs no) among males",
+                          term == "apap_detectYes:h_c_sexFemale"~ "Interaction: acetaminophen yes * sex male")) %>% 
+  mutate(outcome = "NIH Flanker",
+         sex_ref = "Male")
+#####
+##### digit_scale
+#####
+
+lm_male = lm(digit_scale ~ apap_detect*h_c_sex, data = data_original)
+male6 = broom::tidy(lm_male, conf.int = T, exp = F)%>%
+  mutate(OR = paste0(round((estimate), 2), " (", round((conf.low), 2), " - ", round((conf.high), 2), ")")) %>% 
+  dplyr::select(-conf.low, -conf.high) %>%
+  filter(!term %in% c("(Intercept)", "h_c_sexFemale")) %>% 
+  mutate(term = case_when(term == "apap_detectYes"~"Acetaminophen (yes vs no) among males",
+                          term == "apap_detectYes:h_c_sexFemale"~ "Interaction: acetaminophen yes * sex male")) %>% 
+  mutate(outcome = "Digit Span",
+         sex_ref = "Male")
+
+male = male1 %>% rbind(male2)%>% rbind(male3)%>% rbind(male4)%>% rbind(male5)%>% rbind(male6) %>% arrange(term)
+final_res_crude = female %>% rbind(male)%>% rbind(pooled)
+#write_csv(final_res_crude, "final_res_crude_review_1.csv")
+```
+
+
+mycovnames includes all covariates, see data dictionary for details. Below we make model formulas for all outcomes, interacting acetaminophen (apap_detect) with child sex (h_c_sex). Female is the reference level here, so the estimate for apap_detect will be the effect of apap on the outcome among females
+
+```{r}
+mycovnames = c("apap_detect", "prams_sum_score", "h_m_enroll_age", "h_m_enroll_educ", "h_rpp_adj_income", "zavg5_us_doc_dob_wght", "h_m_ethn", "h_gravidity", "h_m_prepreg_bmi", "maternal_tobacco", "h_m_alcohol_prenatal", "healthbehv_q9", "child_age_p1", "m1mb_nsaids", "m1mb_antibiotcs", "h_del_method", "cg_labor_type")
+
+
+ixterm = "h_c_sex"
+predexpr = "apap_detect" 
+
+outexpr = "healthbehv_q2_addadhd"
+form0<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "adhd_med"
+form1<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "p1_dsm_adhd_score"
+form2<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "p1_externalrawscore"
+form3<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "fl_agecor_st_score"
+form4<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "digit_scale"
+form5<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+# Run model on all imputed datasets, pooling using rubins rules
+fit0 = with(data_mice, glm(as.formula(form0), family = binomial("logit")))
+
+# exponentiate the estimate and CIs into odds ratio (OR) and the OR CIs
+res0 = broom::tidy(mice::pool(fit0), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(OR = exp(estimate),
+         OR_lower = exp(conf.low),
+         OR_upper = exp(conf.high)) %>% 
+  mutate(outcome = "ADHD Diagnosis")
+
+# Repeat for other binary outcome, ADHD medications
+fit1 = with(data_mice, glm(as.formula(form1), family = binomial("logit")))
+res1 = broom::tidy(mice::pool(fit1), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(OR = exp(estimate),
+         OR_lower = exp(conf.low),
+         OR_upper = exp(conf.high)) %>% 
+  mutate(outcome = "Taking ADHD Medications")
+
+# For the task based outcomes we use linear regression, no exponentiating into ORs
+fitf = with(flanker_mice, lm(as.formula(form4)))
+resf = broom::tidy(mice::pool(fitf), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(outcome = "NIH Flanker")
+
+fitd = with(digit_mice, lm(as.formula(form5)))
+resd = broom::tidy(mice::pool(fitd), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(outcome = "Digit Span")
+
+
+# linear regression with cluster robust standard errors used for the CBCL outcomes, per ECHO PATHWAYS guidelines. CBCL outcomes are not normally distributed.
+library(sandwich)
+library(miceadds)
+library(mitools)
+datlist <- miceadds::mids2datlist(cbcl_mice)
+mod <- lapply(  datlist, FUN=function(data){
+            miceadds::lm.cluster( data=data, formula=as.formula(form2),
+                    cluster=NULL )
+            }  )
+# extract parameters and covariance matrix
+betas <- lapply( mod, FUN=function(rr){ coef(rr) } )
+vars <- lapply( mod, FUN=function(rr){ vcov(rr) } )
+# conduct statistical inference
+res3=summary(miceadds::pool_mi(qhat=betas, u=vars)) %>% as.data.frame() 
+res3 = res3%>% 
+  mutate(term = rownames(res3)) %>% 
+  dplyr::rename(estimate = results, std.error = se, statistic = t, p.value = p, lower = "(lower", upper ="upper)") %>% 
+  dplyr::select(term, everything(), -missInfo)%>% 
+  mutate(outcome = "CBCL ADHD-DSM5 Score")
+
+
+# linear regression with cluster robust standard errors
+mod <- lapply(  datlist, FUN=function(data){
+            miceadds::lm.cluster( data=data, formula=as.formula(form3),
+                    cluster=NULL )
+            }  )
+# extract parameters and covariance matrix
+betas <- lapply( mod, FUN=function(rr){ coef(rr) } )
+vars <- lapply( mod, FUN=function(rr){ vcov(rr) } )
+# conduct statistical inference
+res4=summary(miceadds::pool_mi(qhat=betas, u=vars)) %>% as.data.frame() 
+res4 = res4%>% 
+  mutate(term = rownames(res4))%>% 
+  dplyr::rename(estimate = results, std.error = se, statistic = t, p.value = p, lower = "(lower", upper ="upper)") %>% 
+  dplyr::select(term, everything(), -missInfo)%>% 
+  mutate(outcome = "CBCL Externalizing Score")
+
+rownames(res3)<-NULL
+rownames(res4)<-NULL
+
+
+final_res1 = res0 %>% 
+  bind_rows(res1)%>% 
+  bind_rows(res3)%>% 
+  bind_rows(res4)%>% 
+  bind_rows(resf) %>% 
+  bind_rows(resd) %>% 
+  filter(grepl("apap_detect", term)) %>%  
+  mutate(model = "1",
+         Sex = "Female")
+
+```
+
+Sensitivity model where we adjust for bw and ga, which could be conceptualized as mediators
+```{r}
+mycovnames = c("apap_detect", "prams_sum_score", "h_m_enroll_age", "h_m_enroll_educ", "h_rpp_adj_income", "zavg5_us_doc_dob_wght", "h_m_ethn", "h_gravidity", "h_m_prepreg_bmi", "maternal_tobacco", "h_m_alcohol_prenatal", "healthbehv_q9", "child_age_p1", "m1mb_nsaids", "m1mb_antibiotcs", "h_del_method", "cg_labor_type", "h_birthweight_g", "h_birth_gestage_wks")
+
+ixterm = "h_c_sex"
+predexpr = "apap_detect" 
+
+outexpr = "healthbehv_q2_addadhd"
+form0<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "adhd_med"
+form1<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "p1_dsm_adhd_score"
+form2<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "p1_externalrawscore"
+form3<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "fl_agecor_st_score"
+form4<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "digit_scale"
+form5<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+
+# Run model on all imputed datasets, pooling using rubins rules
+fit0 = with(data_mice, glm(as.formula(form0), family = binomial("logit")))
+
+# exponentiate the estimate and CIs into odds ratio (OR) and the OR CIs
+res0 = broom::tidy(mice::pool(fit0), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(OR = exp(estimate),
+         OR_lower = exp(conf.low),
+         OR_upper = exp(conf.high)) %>% 
+  mutate(outcome = "ADHD Diagnosis")
+
+# Repeat for other binary outcome, ADHD medications
+fit1 = with(data_mice, glm(as.formula(form1), family = binomial("logit")))
+res1 = broom::tidy(mice::pool(fit1), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(OR = exp(estimate),
+         OR_lower = exp(conf.low),
+         OR_upper = exp(conf.high)) %>% 
+  mutate(outcome = "Taking ADHD Medications")
+
+# For the task based outcomes we use linear regression, no exponentiating into ORs
+fitf = with(flanker_mice, lm(as.formula(form4)))
+resf = broom::tidy(mice::pool(fitf), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(outcome = "NIH Flanker")
+
+fitd = with(digit_mice, lm(as.formula(form5)))
+resd = broom::tidy(mice::pool(fitd), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(outcome = "Digit Span")
+
+
+# linear regression with cluster robust standard errors used for the CBCL outcomes, per ECHO PATHWAYS guidelines. CBCL outcomes are not normally distributed.
+datlist <- miceadds::mids2datlist(cbcl_mice)
+mod <- lapply(  datlist, FUN=function(data){
+            miceadds::lm.cluster( data=data, formula=as.formula(form2),
+                    cluster=NULL )
+            }  )
+# extract parameters and covariance matrix
+betas <- lapply( mod, FUN=function(rr){ coef(rr) } )
+vars <- lapply( mod, FUN=function(rr){ vcov(rr) } )
+# conduct statistical inference
+res3=summary(miceadds::pool_mi(qhat=betas, u=vars)) %>% as.data.frame() 
+res3 = res3%>% 
+  mutate(term = rownames(res3)) %>% 
+  dplyr::rename(estimate = results, std.error = se, statistic = t, p.value = p, lower = "(lower", upper ="upper)") %>% 
+  dplyr::select(term, everything(), -missInfo)%>% 
+  mutate(outcome = "CBCL ADHD-DSM5 Score")
+
+
+# linear regression with cluster robust standard errors
+mod <- lapply(  datlist, FUN=function(data){
+            miceadds::lm.cluster( data=data, formula=as.formula(form3),
+                    cluster=NULL )
+            }  )
+# extract parameters and covariance matrix
+betas <- lapply( mod, FUN=function(rr){ coef(rr) } )
+vars <- lapply( mod, FUN=function(rr){ vcov(rr) } )
+# conduct statistical inference
+res4=summary(miceadds::pool_mi(qhat=betas, u=vars)) %>% as.data.frame() 
+res4 = res4%>% 
+  mutate(term = rownames(res4))%>% 
+  dplyr::rename(estimate = results, std.error = se, statistic = t, p.value = p, lower = "(lower", upper ="upper)") %>% 
+  dplyr::select(term, everything(), -missInfo)%>% 
+  mutate(outcome = "CBCL Externalizing Score")
+
+rownames(res3)<-NULL
+rownames(res4)<-NULL
+
+
+final_res2 = res0 %>% 
+  bind_rows(res1)%>% 
+  bind_rows(res3)%>% 
+  bind_rows(res4)%>% 
+  bind_rows(resf) %>% 
+  bind_rows(resd) %>% 
+  filter(grepl("apap_detect", term)) %>%  
+  mutate(model = "2",
+         Sex = "Female")
+
+```
+
+
+```{r}
+final_res_female = final_res2 %>% 
+  bind_rows(final_res1) %>% 
+  mutate(outcome = factor(outcome, levels = c("Digit Span", "NIH Flanker", "CBCL Externalizing Score", "CBCL ADHD-DSM5 Score", "Taking ADHD Medications", "ADHD Diagnosis"))) %>% 
+  dplyr::rename(Model = model) %>% 
+  mutate(P.value = 
+           case_when(p.value <0.05 ~ "<0.05",
+                     p.value>=0.05 & p.value<0.1 ~ "<0.10",
+                     p.value>=0.1 ~ "\u22650.10")) %>% 
+  mutate(domain = case_when(outcome %in% c("Digit Span", "NIH Flanker")~"Task-based",
+                            outcome %in% c("CBCL Externalizing Score", "CBCL ADHD-DSM5 Score")~"CBCL parent report",
+                            outcome %in% c("Taking ADHD Medications", "ADHD Diagnosis")~"Diagnosis"))
+
+saveRDS(final_res_female, "final_res_female.RDS")
+```
+
+repeat all with male as reference level, so we get the effect of apap on the outcome among males. 
+```{r}
+data_mice = readRDS("data_mice_307_all_outcomes_sles_sex_strat.RDS")
+data_mice_long <- complete(data_mice, action = "long", include = TRUE)
+
+# relevel so male is the reference
+data_mice_long = data_mice_long %>% mutate(h_c_sex = relevel(h_c_sex, ref = "Male"))
+
+data_mice = as.mids(data_mice_long)
+
+data_mice_long %>% filter(.imp == 0,
+                          !is.na(fl_agecor_st_score)) %>% nrow()
+
+data_mice_long %>% filter(.imp == 0,
+                          !is.na(digit_scale)) %>% nrow()
+
+flanker_ids = data_mice_long %>% filter(.imp == 0,
+                                        flanker_valid %in% c("Valid", "Questionable")) %>% 
+  pull(.id)
+
+digit_ids = data_mice_long %>% filter(.imp == 0,
+                                      digit_valid %in% c("Valid", "Questionable"))%>% 
+  pull(.id)
+
+cbcl_ids = data_mice_long %>% filter(.imp == 0,
+                                     !is.na(p1_externalrawscore)) %>% 
+  pull(.id)
+
+flanker_mice_long = data_mice_long %>% filter(.id %in% flanker_ids)
+flanker_mice = as.mids(flanker_mice_long)
+
+digit_mice_long = data_mice_long %>% filter(.id %in% digit_ids)
+digit_mice = as.mids(digit_mice_long)
+
+cbcl_mice_long = data_mice_long %>% filter(.id %in% cbcl_ids)
+cbcl_mice = as.mids(cbcl_mice_long)
+```
+
+
+
+```{r}
+mycovnames = c("apap_detect", "prams_sum_score", "h_m_enroll_age", "h_m_enroll_educ", "h_rpp_adj_income", "zavg5_us_doc_dob_wght", "h_m_ethn", "h_gravidity", "h_m_prepreg_bmi", "maternal_tobacco", "h_m_alcohol_prenatal", "healthbehv_q9", "child_age_p1", "m1mb_nsaids", "m1mb_antibiotcs", "h_del_method", "cg_labor_type")
+
+
+ixterm = "h_c_sex"
+predexpr = "apap_detect" 
+
+outexpr = "healthbehv_q2_addadhd"
+form0<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "adhd_med"
+form1<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "p1_dsm_adhd_score"
+form2<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "p1_externalrawscore"
+form3<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "fl_agecor_st_score"
+form4<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "digit_scale"
+form5<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+
+fit0 = with(data_mice, glm(as.formula(form0), family = binomial("logit")))
+res0 = broom::tidy(mice::pool(fit0), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(OR = exp(estimate),
+         OR_lower = exp(conf.low),
+         OR_upper = exp(conf.high)) %>% 
+  mutate(outcome = "ADHD Diagnosis")
+
+
+fit1 = with(data_mice, glm(as.formula(form1), family = binomial("logit")))
+res1 = broom::tidy(mice::pool(fit1), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(OR = exp(estimate),
+         OR_lower = exp(conf.low),
+         OR_upper = exp(conf.high)) %>% 
+  mutate(outcome = "Taking ADHD Medications")
+
+
+fitf = with(flanker_mice, lm(as.formula(form4)))
+resf = broom::tidy(mice::pool(fitf), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(outcome = "NIH Flanker")
+
+fitd = with(digit_mice, lm(as.formula(form5)))
+resd = broom::tidy(mice::pool(fitd), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(outcome = "Digit Span")
+
+# linear regression with cluster robust standard errors used for the CBCL outcomes, per ECHO PATHWAYS guidelines. CBCL outcomes are not normally distributed.
+datlist <- miceadds::mids2datlist(cbcl_mice)
+mod <- lapply(  datlist, FUN=function(data){
+            miceadds::lm.cluster( data=data, formula=as.formula(form2),
+                    cluster=NULL )
+            }  )
+# extract parameters and covariance matrix
+betas <- lapply( mod, FUN=function(rr){ coef(rr) } )
+vars <- lapply( mod, FUN=function(rr){ vcov(rr) } )
+# conduct statistical inference
+res3=summary(miceadds::pool_mi(qhat=betas, u=vars)) %>% as.data.frame() 
+res3 = res3%>% 
+  mutate(term = rownames(res3)) %>% 
+  dplyr::rename(estimate = results, std.error = se, statistic = t, p.value = p, lower = "(lower", upper ="upper)") %>% 
+  dplyr::select(term, everything(), -missInfo)%>% 
+  mutate(outcome = "CBCL ADHD-DSM5 Score")
+
+
+# linear regression with cluster robust standard errors
+mod <- lapply(  datlist, FUN=function(data){
+            miceadds::lm.cluster( data=data, formula=as.formula(form3),
+                    cluster=NULL )
+            }  )
+# extract parameters and covariance matrix
+betas <- lapply( mod, FUN=function(rr){ coef(rr) } )
+vars <- lapply( mod, FUN=function(rr){ vcov(rr) } )
+# conduct statistical inference
+res4=summary(miceadds::pool_mi(qhat=betas, u=vars)) %>% as.data.frame() 
+res4 = res4%>% 
+  mutate(term = rownames(res4))%>% 
+  dplyr::rename(estimate = results, std.error = se, statistic = t, p.value = p, lower = "(lower", upper ="upper)") %>% 
+  dplyr::select(term, everything(), -missInfo)%>% 
+  mutate(outcome = "CBCL Externalizing Score")
+
+rownames(res3)<-NULL
+rownames(res4)<-NULL
+
+final_res1 = res0 %>% 
+  bind_rows(res1)%>% 
+  bind_rows(res3)%>% 
+  bind_rows(res4)%>% 
+  bind_rows(resf) %>% 
+  bind_rows(resd) %>% 
+  filter(grepl("apap_detect", term)) %>%  
+  mutate(model = "1",
+         Sex = "Male")
+
+```
+
+Sensitivity model where we adjust for bw and ga, which could be conceptualized as mediators, getting the effect of apap on outcomes among males
+```{r}
+mycovnames = c("apap_detect", "prams_sum_score", "h_m_enroll_age", "h_m_enroll_educ", "h_rpp_adj_income", "zavg5_us_doc_dob_wght", "h_m_ethn", "h_gravidity", "h_m_prepreg_bmi", "maternal_tobacco", "h_m_alcohol_prenatal", "healthbehv_q9", "child_age_p1", "m1mb_nsaids", "m1mb_antibiotcs", "h_del_method", "cg_labor_type", "h_birthweight_g", "h_birth_gestage_wks")
+
+
+ixterm = "h_c_sex"
+predexpr = "apap_detect" 
+
+outexpr = "healthbehv_q2_addadhd"
+form0<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "adhd_med"
+form1<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "p1_dsm_adhd_score"
+form2<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "p1_externalrawscore"
+form3<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "fl_agecor_st_score"
+form4<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+outexpr = "digit_scale"
+form5<-paste0(outexpr,"~",predexpr,"*",ixterm,"+",
+              paste(mycovnames,collapse="+"))
+
+
+fit0 = with(data_mice, glm(as.formula(form0), family = binomial("logit")))
+res0 = broom::tidy(mice::pool(fit0), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(OR = exp(estimate),
+         OR_lower = exp(conf.low),
+         OR_upper = exp(conf.high)) %>% 
+  mutate(outcome = "ADHD Diagnosis")
+
+
+fit1 = with(data_mice, glm(as.formula(form1), family = binomial("logit")))
+res1 = broom::tidy(mice::pool(fit1), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(OR = exp(estimate),
+         OR_lower = exp(conf.low),
+         OR_upper = exp(conf.high)) %>% 
+  mutate(outcome = "Taking ADHD Medications")
+
+
+fitf = with(flanker_mice, lm(as.formula(form4)))
+resf = broom::tidy(mice::pool(fitf), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(outcome = "NIH Flanker")
+
+fitd = with(digit_mice, lm(as.formula(form5)))
+resd = broom::tidy(mice::pool(fitd), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(outcome = "Digit Span")
+
+# linear regression with cluster robust standard errors used for the CBCL outcomes, per ECHO PATHWAYS guidelines. CBCL outcomes are not normally distributed.
+datlist <- miceadds::mids2datlist(cbcl_mice)
+mod <- lapply(  datlist, FUN=function(data){
+            miceadds::lm.cluster( data=data, formula=as.formula(form2),
+                    cluster=NULL )
+            }  )
+# extract parameters and covariance matrix
+betas <- lapply( mod, FUN=function(rr){ coef(rr) } )
+vars <- lapply( mod, FUN=function(rr){ vcov(rr) } )
+# conduct statistical inference
+res3=summary(miceadds::pool_mi(qhat=betas, u=vars)) %>% as.data.frame() 
+res3 = res3%>% 
+  mutate(term = rownames(res3)) %>% 
+  dplyr::rename(estimate = results, std.error = se, statistic = t, p.value = p, lower = "(lower", upper ="upper)") %>% 
+  dplyr::select(term, everything(), -missInfo)%>% 
+  mutate(outcome = "CBCL ADHD-DSM5 Score")
+
+
+# linear regression with cluster robust standard errors
+mod <- lapply(  datlist, FUN=function(data){
+            miceadds::lm.cluster( data=data, formula=as.formula(form3),
+                    cluster=NULL )
+            }  )
+# extract parameters and covariance matrix
+betas <- lapply( mod, FUN=function(rr){ coef(rr) } )
+vars <- lapply( mod, FUN=function(rr){ vcov(rr) } )
+# conduct statistical inference
+res4=summary(miceadds::pool_mi(qhat=betas, u=vars)) %>% as.data.frame() 
+res4 = res4%>% 
+  mutate(term = rownames(res4))%>% 
+  dplyr::rename(estimate = results, std.error = se, statistic = t, p.value = p, lower = "(lower", upper ="upper)") %>% 
+  dplyr::select(term, everything(), -missInfo)%>% 
+  mutate(outcome = "CBCL Externalizing Score")
+
+rownames(res3)<-NULL
+rownames(res4)<-NULL
+
+final_res2 = res0 %>% 
+  bind_rows(res1)%>% 
+  bind_rows(res3)%>% 
+  bind_rows(res4)%>% 
+  bind_rows(resf) %>% 
+  bind_rows(resd) %>% 
+  filter(grepl("apap_detect", term)) %>%  
+  mutate(model = "2",
+         Sex = "Male")
+
+```
+
+```{r}
+final_res_male = final_res2 %>% 
+  bind_rows(final_res1)%>% 
+  mutate(outcome = factor(outcome, levels = c("Digit Span", "NIH Flanker", "CBCL Externalizing Score", "CBCL ADHD-DSM5 Score", "Taking ADHD Medications", "ADHD Diagnosis"))) %>% 
+  dplyr::rename(Model = model) %>% 
+  mutate(P.value = 
+           case_when(p.value <0.05 ~ "<0.05",
+                     p.value>=0.05 & p.value<0.1 ~ "<0.10",
+                     p.value>=0.1 ~ "\u22650.10")) %>% 
+  mutate(domain = case_when(outcome %in% c("Digit Span", "NIH Flanker")~"Task-based",
+                            outcome %in% c("CBCL Externalizing Score", "CBCL ADHD-DSM5 Score")~"CBCL parent report",
+                            outcome %in% c("Taking ADHD Medications", "ADHD Diagnosis")~"Diagnosis"))
+
+saveRDS(final_res_male, "final_res_male.RDS")
+```
+
+
+repeat with no sex interaction
+```{r}
+library(tidyverse)
+library(mice)
+library(foreach)
+data_mice = readRDS("data_mice_307_all_outcomes_sles.RDS")
+#data_mice = readRDS("data_mice_307_all_outcomes_sles_sex_strat.RDS")
+data_mice_long <- complete(data_mice, action = "long", include = TRUE)
+
+#data_mice_long_male = data_mice_long %>% mutate(h_c_sex = relevel(h_c_sex, ref = "Male"))
+
+#data_mice_male = as.mids(data_mice_long_male)
+#summary(data_mice_long_male)
+data_mice_long %>% filter(.imp == 0,
+                          !is.na(fl_agecor_st_score)) %>% nrow()
+
+data_mice_long %>% filter(.imp == 0,
+                          !is.na(digit_scale)) %>% nrow()
+
+flanker_ids = data_mice_long %>% filter(.imp == 0,
+                                        flanker_valid %in% c("Valid", "Questionable")) %>% 
+  pull(.id)
+
+digit_ids = data_mice_long %>% filter(.imp == 0,
+                                      digit_valid %in% c("Valid", "Questionable"))%>% 
+  pull(.id)
+
+cbcl_ids = data_mice_long %>% filter(.imp == 0,
+                                     !is.na(p1_externalrawscore)) %>% 
+  pull(.id)
+
+flanker_mice_long = data_mice_long %>% filter(.id %in% flanker_ids)
+flanker_mice = as.mids(flanker_mice_long)
+
+digit_mice_long = data_mice_long %>% filter(.id %in% digit_ids)
+digit_mice = as.mids(digit_mice_long)
+
+cbcl_mice_long = data_mice_long %>% filter(.id %in% cbcl_ids)
+cbcl_mice = as.mids(cbcl_mice_long)
+
+
+```
+
+
+```{r}
+mycovnames = c("h_c_sex", "prams_sum_score", "h_m_enroll_age", "h_m_enroll_educ", "h_rpp_adj_income", "zavg5_us_doc_dob_wght", "h_m_ethn", "h_gravidity", "h_m_prepreg_bmi", "maternal_tobacco", "h_m_alcohol_prenatal", "healthbehv_q9", "child_age_p1", "m1mb_nsaids", "m1mb_antibiotcs", "h_del_method", "cg_labor_type")
+
+predexpr = "apap_detect" 
+
+outexpr = "healthbehv_q2_addadhd"
+
+form0 = paste0(outexpr,"~",predexpr, "+", paste(mycovnames,collapse="+"))
+
+outexpr = "adhd_med"
+form1 = paste0(outexpr,"~",predexpr, "+", paste(mycovnames,collapse="+"))
+
+outexpr = "p1_dsm_adhd_score"
+form2 = paste0(outexpr,"~",predexpr, "+", paste(mycovnames,collapse="+"))
+
+outexpr = "p1_externalrawscore"
+form3 = paste0(outexpr,"~",predexpr, "+", paste(mycovnames,collapse="+"))
+
+outexpr = "fl_agecor_st_score"
+form4 = paste0(outexpr,"~",predexpr, "+", paste(mycovnames,collapse="+"))
+
+outexpr = "digit_scale"
+form5 = paste0(outexpr,"~",predexpr, "+", paste(mycovnames,collapse="+"))
+
+fit0 = with(data_mice, glm(as.formula(form0), family = binomial("logit")))
+res0 = broom::tidy(mice::pool(fit0), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(OR = exp(estimate),
+         OR_lower = exp(conf.low),
+         OR_upper = exp(conf.high)) %>% 
+  mutate(outcome = "ADHD Diagnosis")
+
+
+fit1 = with(data_mice, glm(as.formula(form1), family = binomial("logit")))
+res1 = broom::tidy(mice::pool(fit1), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(OR = exp(estimate),
+         OR_lower = exp(conf.low),
+         OR_upper = exp(conf.high)) %>% 
+  mutate(outcome = "Taking ADHD Medications")
+
+
+fitf = with(flanker_mice, lm(as.formula(form4)))
+resf = broom::tidy(mice::pool(fitf), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(outcome = "NIH Flanker")
+
+fitd = with(digit_mice, lm(as.formula(form5)))
+resd = broom::tidy(mice::pool(fitd), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(outcome = "Digit Span")
+
+# linear regression with cluster robust standard errors used for the CBCL outcomes, per ECHO PATHWAYS guidelines. CBCL outcomes are not normally distributed.
+datlist <- miceadds::mids2datlist(cbcl_mice)
+mod <- lapply(  datlist, FUN=function(data){
+            miceadds::lm.cluster( data=data, formula=as.formula(form2),
+                    cluster=NULL )
+            }  )
+# extract parameters and covariance matrix
+betas <- lapply( mod, FUN=function(rr){ coef(rr) } )
+vars <- lapply( mod, FUN=function(rr){ vcov(rr) } )
+# conduct statistical inference
+res3=summary(miceadds::pool_mi(qhat=betas, u=vars)) %>% as.data.frame() 
+res3 = res3%>% 
+  mutate(term = rownames(res3)) %>% 
+  dplyr::rename(estimate = results, std.error = se, statistic = t, p.value = p, lower = "(lower", upper ="upper)") %>% 
+  dplyr::select(term, everything(), -missInfo)%>% 
+  mutate(outcome = "CBCL ADHD-DSM5 Score")
+
+
+# linear regression with cluster robust standard errors
+mod <- lapply(  datlist, FUN=function(data){
+            miceadds::lm.cluster( data=data, formula=as.formula(form3),
+                    cluster=NULL )
+            }  )
+# extract parameters and covariance matrix
+betas <- lapply( mod, FUN=function(rr){ coef(rr) } )
+vars <- lapply( mod, FUN=function(rr){ vcov(rr) } )
+# conduct statistical inference
+res4=summary(miceadds::pool_mi(qhat=betas, u=vars)) %>% as.data.frame() 
+res4 = res4%>% 
+  mutate(term = rownames(res4))%>% 
+  dplyr::rename(estimate = results, std.error = se, statistic = t, p.value = p, lower = "(lower", upper ="upper)") %>% 
+  dplyr::select(term, everything(), -missInfo)%>% 
+  mutate(outcome = "CBCL Externalizing Score")
+
+rownames(res3)<-NULL
+rownames(res4)<-NULL
+
+final_res1 = res0 %>% 
+  bind_rows(res1)%>% 
+  bind_rows(res3)%>% 
+  bind_rows(res4)%>% 
+  bind_rows(resf) %>% 
+  bind_rows(resd) %>% 
+  filter(grepl("apap_detect", term)) %>%  
+  mutate(model = "1",
+         Sex = "Unstratified")
+
+```
+
+Sensitivity model where we adjust for bw and ga, which could be conceptualized as mediators, getting the effect of apap on outcomes among both sexes
+```{r}
+mycovnames = c("h_c_sex", "prams_sum_score", "h_m_enroll_age", "h_m_enroll_educ", "h_rpp_adj_income", "zavg5_us_doc_dob_wght", "h_m_ethn", "h_gravidity", "h_m_prepreg_bmi", "maternal_tobacco", "h_m_alcohol_prenatal", "healthbehv_q9", "child_age_p1", "m1mb_nsaids", "m1mb_antibiotcs", "h_del_method", "cg_labor_type", "h_birthweight_g", "h_birth_gestage_wks")
+
+predexpr = "apap_detect" 
+
+
+outexpr = "healthbehv_q2_addadhd"
+
+form0 = paste0(outexpr,"~",predexpr, "+", paste(mycovnames,collapse="+"))
+
+outexpr = "adhd_med"
+form1 = paste0(outexpr,"~",predexpr, "+", paste(mycovnames,collapse="+"))
+
+outexpr = "p1_dsm_adhd_score"
+form2 = paste0(outexpr,"~",predexpr, "+", paste(mycovnames,collapse="+"))
+
+outexpr = "p1_externalrawscore"
+form3 = paste0(outexpr,"~",predexpr, "+", paste(mycovnames,collapse="+"))
+
+outexpr = "fl_agecor_st_score"
+form4 = paste0(outexpr,"~",predexpr, "+", paste(mycovnames,collapse="+"))
+
+outexpr = "digit_scale"
+form5 = paste0(outexpr,"~",predexpr, "+", paste(mycovnames,collapse="+"))
+
+
+fit0 = with(data_mice, glm(as.formula(form0), family = binomial("logit")))
+res0 = broom::tidy(mice::pool(fit0), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(OR = exp(estimate),
+         OR_lower = exp(conf.low),
+         OR_upper = exp(conf.high)) %>% 
+  mutate(outcome = "ADHD Diagnosis")
+
+
+fit1 = with(data_mice, glm(as.formula(form1), family = binomial("logit")))
+res1 = broom::tidy(mice::pool(fit1), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(OR = exp(estimate),
+         OR_lower = exp(conf.low),
+         OR_upper = exp(conf.high)) %>% 
+  mutate(outcome = "Taking ADHD Medications")
+
+
+fitf = with(flanker_mice, lm(as.formula(form4)))
+resf = broom::tidy(mice::pool(fitf), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(outcome = "NIH Flanker")
+
+fitd = with(digit_mice, lm(as.formula(form5)))
+resd = broom::tidy(mice::pool(fitd), conf.int = T) %>% 
+  mutate(Significant = ifelse(p.value<0.05, "Yes", "No")) %>% 
+  mutate(outcome = "Digit Span")
+
+# linear regression with cluster robust standard errors used for the CBCL outcomes, per ECHO PATHWAYS guidelines. CBCL outcomes are not normally distributed.
+datlist <- miceadds::mids2datlist(cbcl_mice)
+mod <- lapply(  datlist, FUN=function(data){
+            miceadds::lm.cluster( data=data, formula=as.formula(form2),
+                    cluster=NULL )
+            }  )
+# extract parameters and covariance matrix
+betas <- lapply( mod, FUN=function(rr){ coef(rr) } )
+vars <- lapply( mod, FUN=function(rr){ vcov(rr) } )
+# conduct statistical inference
+res3=summary(miceadds::pool_mi(qhat=betas, u=vars)) %>% as.data.frame() 
+res3 = res3%>% 
+  mutate(term = rownames(res3)) %>% 
+  dplyr::rename(estimate = results, std.error = se, statistic = t, p.value = p, lower = "(lower", upper ="upper)") %>% 
+  dplyr::select(term, everything(), -missInfo)%>% 
+  mutate(outcome = "CBCL ADHD-DSM5 Score")
+
+
+# linear regression with cluster robust standard errors
+mod <- lapply(  datlist, FUN=function(data){
+            miceadds::lm.cluster( data=data, formula=as.formula(form3),
+                    cluster=NULL )
+            }  )
+# extract parameters and covariance matrix
+betas <- lapply( mod, FUN=function(rr){ coef(rr) } )
+vars <- lapply( mod, FUN=function(rr){ vcov(rr) } )
+# conduct statistical inference
+res4=summary(miceadds::pool_mi(qhat=betas, u=vars)) %>% as.data.frame() 
+res4 = res4%>% 
+  mutate(term = rownames(res4))%>% 
+  dplyr::rename(estimate = results, std.error = se, statistic = t, p.value = p, lower = "(lower", upper ="upper)") %>% 
+  dplyr::select(term, everything(), -missInfo)%>% 
+  mutate(outcome = "CBCL Externalizing Score")
+
+rownames(res3)<-NULL
+rownames(res4)<-NULL
+
+final_res2 = res0 %>% 
+  bind_rows(res1)%>% 
+  bind_rows(res3)%>% 
+  bind_rows(res4)%>% 
+  bind_rows(resf) %>% 
+  bind_rows(resd) %>% 
+  filter(grepl("apap_detect", term)) %>%  
+  mutate(model = "2",
+         Sex = "Unstratified")
+
+```
+
+
+```{r}
+final_res_no_int = final_res2 %>% 
+  bind_rows(final_res1) %>% 
+  mutate(outcome = factor(outcome, levels = c("Digit Span", "NIH Flanker", "CBCL Externalizing Score", "CBCL ADHD-DSM5 Score", "Taking ADHD Medications", "ADHD Diagnosis"))) %>% 
+  dplyr::rename(Model = model) %>% 
+  mutate(P.value = 
+           case_when(p.value <0.05 ~ "<0.05",
+                     p.value>=0.05 & p.value<0.1 ~ "<0.10",
+                     p.value>=0.1 ~ "\u22650.10")) %>% 
+  mutate(domain = case_when(outcome %in% c("Digit Span", "NIH Flanker")~"Task-based",
+                            outcome %in% c("CBCL Externalizing Score", "CBCL ADHD-DSM5 Score")~"CBCL parent report",
+                            outcome %in% c("Taking ADHD Medications", "ADHD Diagnosis")~"Diagnosis"))
+
+saveRDS(final_res_no_int, "final_res_no_int.RDS")
+```
+
+
+Plot the results
+
+```{r}
+bbtheme <- theme(axis.text.x = element_text(size=12,face = "bold"),
+                 axis.text.y = element_text(size=12, face = "bold"),
+                 axis.title.x = element_text(size=12, face = "bold"),
+                 axis.title.y = element_text(size=12, face = "bold"),
+                 plot.title = element_text(size=12, face = "bold"),
+                 strip.text = element_text(size=12, face = "bold"),
+                 legend.text=element_text(size=12, face = "bold"),
+                 legend.title = element_text(size=12, face = "bold"))
+
+female_ref = readRDS("final_res_female.RDS")
+
+male_ref = readRDS("final_res_male.RDS")
+
+final_res_no_int = readRDS("final_res_no_int.RDS")
+
+final_res = female_ref %>% bind_rows(male_ref) %>% bind_rows(final_res_all_no_int) %>% filter(term == "apap_detectYes")
+
+#Model = 1 is the main model, not adjusting for bw and ga
+final_res = final_res %>% 
+  mutate(Sex = ifelse(Sex == "Unstratified", "Both", Sex)) %>% 
+  mutate(Sex = factor(Sex, levels=c("Male", "Female", "Both")))%>% filter(Model == "1")
+
+#write_csv(final_res, "final_res_11_6_23_robust_SE.csv")
+
+#save interactions also
+save_int = female_ref %>% bind_rows(male_ref) %>%  filter(term %in% c("apap_detectYes:h_c_sexMale","apap_detectYes:h_c_sexFemale"))%>% filter(Model == "1")
+#write_csv(save_int, "save_int_11_6_23_robust_SE.csv")
+
+
+task_res = final_res %>% filter(domain == "Task-based")
+cbcl_res = final_res %>% filter(domain == "CBCL parent report")
+diag_res = final_res %>% filter(domain == "Diagnosis")
+
+
+plot_task = ggplot(task_res, aes(x = outcome, y = estimate, color = Sex))+
+  geom_point(size = 2.5,position = position_dodge(0.8))+
+  geom_errorbar(aes(ymin = lower, ymax = upper),width = .3,position = position_dodge(0.8))+
+  geom_hline(aes(yintercept = 0), linetype = "dashed")+
+  labs(y = "Regression Coefficient",
+       x  = "")+
+  #scale_color_manual(values=c("black", "red"), name = "P<0.05")+
+  #scale_y_continuous(limits = c(-11,18), breaks = c(-10, -5, 0, 5, 10))+
+  coord_flip()+
+  theme_bw()+
+  #facet_wrap(~Model,labeller = label_both)+
+  scale_color_manual(values=c("#3E9BFEFF","#F05B12FF", "black"))+
+  bbtheme+ guides(color = guide_legend(reverse = TRUE))
+plot_task
+
+
+plot_cbcl = ggplot(cbcl_res, aes(x = outcome, y = estimate, color = Sex))+
+  geom_point(size = 2.5,position = position_dodge(0.8))+
+  geom_errorbar(aes(ymin = lower, ymax = upper),width = .3,position = position_dodge(0.8))+
+  geom_hline(aes(yintercept = 0), linetype = "dashed")+
+  labs(y = "Regression Coefficient",
+       x  = "")+
+  #scale_color_manual(values=c("black", "red"), name = "P<0.05")+
+  #scale_y_continuous(limits = c(-11,18), breaks = c(-10, -5, 0, 5, 10))+
+  coord_flip()+
+  theme_bw()+
+  #facet_wrap(~Model,labeller = label_both)+
+  scale_color_manual(values=c("#3E9BFEFF","#F05B12FF", "black"))+
+  bbtheme+ guides(color = guide_legend(reverse = TRUE))
+plot_cbcl
+
+plot_diag = ggplot(diag_res, aes(x = outcome, y = OR, color = Sex))+
+  geom_point(size = 2.5,position = position_dodge(0.8))+
+  geom_errorbar(aes(ymin = OR_lower, ymax = OR_upper),width = .3,position = position_dodge(0.8))+
+  geom_hline(aes(yintercept = 1), linetype = "dashed")+
+  labs(y = "Odds Ratio (log scale)",
+       x  = "")+
+  #scale_color_manual(values=c("black", "red"), name = "P<0.05")+
+  scale_y_continuous(trans = "log10")+
+  coord_flip()+
+  theme_bw()+
+  #facet_wrap(~Model,labeller = label_both)+
+  scale_color_manual(values=c("#3E9BFEFF","#F05B12FF", "black"))+
+  bbtheme+ guides(color = guide_legend(reverse = TRUE))
+plot_diag
+
+
+library(ggpubr)
+ggarrange(plot_diag,plot_cbcl,plot_task, nrow = 3, align = "hv", legend = "right", common.legend = T, labels = c("A", "B", "C"))
+
+#ggsave("apap adhd sex strat models_mice_also_stratified_11_6_23_robust_SE.jpg", dpi = 600)
+
+
+```
+
+
+For sensitivity analysis adjusting for bw and ga no plot, just save the results to include in the supplement
+```{r}
+female_ref = readRDS("final_res_female.RDS")
+
+male_ref = readRDS("final_res_male.RDS")
+
+final_res_no_int = readRDS("final_res_no_int.RDS")
+
+final_res = female_ref %>% bind_rows(male_ref) %>% bind_rows(final_res_all_no_int) %>% filter(term == "apap_detectYes")
+
+final_res = final_res %>% 
+  mutate(Sex = ifelse(Sex == "Unstratified", "Both", Sex)) %>% 
+  mutate(Sex = factor(Sex, levels=c("Male", "Female", "Both")))%>% filter(Model == "2")
+
+#write_csv(final_res, "final_res_11_6_23_robust_SE_bwga.csv")
+
+#save interactions also
+save_int = female_ref %>% bind_rows(male_ref) %>%  filter(term %in% c("apap_detectYes:h_c_sexMale","apap_detectYes:h_c_sexFemale"))%>% filter(Model == "2")
+#write_csv(save_int, "save_int_11_6_23_robust_SE_bwga.csv")
+
+```

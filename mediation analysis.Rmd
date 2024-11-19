@@ -1,0 +1,160 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r}
+library(tidyverse)
+library(mice)
+library(mediation)
+library(foreach)
+alldg_full = readRDS("alldg_full_174.RDS")
+
+voom1 = voom(alldg_full)
+
+# genes of interest
+"ENSG00000136689"
+"ENSG00000211896"
+
+genes = voom1$E[c("ENSG00000211896","ENSG00000136689"),] %>% as.data.frame() %>% t() %>% as.data.frame() 
+genes = genes %>% mutate(pathways_id = rownames(genes))
+data_mi_rna = readRDS("data_mi_rna.RDS") %>% left_join(genes)
+```
+
+```{r}
+data_mice = readRDS("data_mi_rna_mice_174.RDS")
+set.seed(2023)
+
+#mediation moderated by sex on all 100 imputed datasets
+mice_med_res = foreach(i = 1:100) %do% {
+  dat = complete(data_mice, i)
+  mod1 = lm(ENSG00000211896 ~ apap_detect*h_c_sex+prams_sum_score + h_m_enroll_age + h_m_enroll_educ + h_rpp_adj_income + zavg5_us_doc_dob_wght + h_m_ethn + h_del_method +h_gravidity+ cg_labor_type+ h_m_prepreg_bmi + maternal_tobacco + h_m_alcohol_prenatal + healthbehv_q9+ m1mb_nsaids + m1mb_antibiotcs+batch, data = dat)
+  mod2 = glm(healthbehv_q2_addadhd ~ apap_detect*h_c_sex + ENSG00000211896+prams_sum_score + h_m_enroll_age + h_m_enroll_educ + h_rpp_adj_income + zavg5_us_doc_dob_wght + h_m_ethn + h_del_method +h_gravidity+ cg_labor_type+ h_m_prepreg_bmi + maternal_tobacco + h_m_alcohol_prenatal + healthbehv_q9+ m1mb_nsaids + m1mb_antibiotcs+batch+child_age_p1, family = binomial("logit"), data = dat)
+  med1 = mediate(mod1, mod2, covariates = list(h_c_sex = "Female"),
+        treat="apap_detect", mediator="ENSG00000211896", boot = FALSE,   
+                            sims = 1000)
+  
+}
+
+#saveRDS(mice_med_res, "mice_med_res.RDS")
+mice_med_res = readRDS("mice_med_res.RDS")
+p_vals = foreach(i = 1:100, .combine = "c") %do% {
+  dat = mice_med_res[[i]]
+  dat$d1.p
+}
+median(p_vals)
+
+# for some horrible reason the list has to be named, each element with a distinct name...in order to get a summary from amelidiate
+# amelidiate stacks the multiply imputes mediation analyses and then determines estimates and 95% CIs.
+mice_med_res <- setNames(mice_med_res, paste0("a",as.character(1:100)))
+out = amelidiate(mice_med_res)
+summary(out)
+
+# extract all components beacuse there is no broom method for this
+res = c(out$d0,
+        out$d1,
+        out$z0,
+        out$z1,
+        out$tau,
+        out$n0,
+        out$n1,
+        out$d.avg,
+        out$z.avg,
+        out$n.avg)
+lower = c(out$d0.ci[1],
+        out$d1.ci[1],
+        out$z0.ci[1],
+        out$z1.ci[1],
+        out$tau.ci[1],
+        out$n0.ci[1],
+        out$n1.ci[1],
+        out$d.avg.ci[1],
+        out$z.avg.ci[1],
+        out$n.avg.ci[1])
+
+upper = c(out$d0.ci[2],
+        out$d1.ci[2],
+        out$z0.ci[2],
+        out$z1.ci[2],
+        out$tau.ci[2],
+        out$n0.ci[2],
+        out$n1.ci[2],
+        out$d.avg.ci[2],
+        out$z.avg.ci[2],
+        out$n.avg.ci[2])
+
+
+med_res_final = tibble(term = c("ACME (control)","ACME (treated)","ADE (control)","ADE (treated)","Total Effect","Prop. Mediated (control)","Prop. Mediated (treated)","ACME (average)","ADE (average)","Prop. Mediated (average)"),estimate = res, lower = lower, upper = upper)
+
+write_csv(med_res_final, "final mediation ENSG00000211896 100 datasets 1000 sims.csv")
+
+```
+
+For ENSG00000136689
+```{r}
+data_mice = readRDS("data_mi_rna_mice_174_ENSG00000136689.RDS")
+set.seed(2023)
+mice_med_res = foreach(i = 1:100) %do% {
+  dat = complete(data_mice, i)
+  mod1 = lm(ENSG00000136689 ~ apap_detect*h_c_sex+prams_sum_score + h_m_enroll_age + h_m_enroll_educ + h_rpp_adj_income + zavg5_us_doc_dob_wght + h_m_ethn + h_del_method +h_gravidity+ cg_labor_type+ h_m_prepreg_bmi + maternal_tobacco + h_m_alcohol_prenatal + healthbehv_q9+ m1mb_nsaids + m1mb_antibiotcs+batch, data = dat)
+  mod2 = glm(healthbehv_q2_addadhd ~ apap_detect*h_c_sex + ENSG00000136689+prams_sum_score + h_m_enroll_age + h_m_enroll_educ + h_rpp_adj_income + zavg5_us_doc_dob_wght + h_m_ethn + h_del_method +h_gravidity+ cg_labor_type+ h_m_prepreg_bmi + maternal_tobacco + h_m_alcohol_prenatal + healthbehv_q9+ m1mb_nsaids + m1mb_antibiotcs+batch+child_age_p1, family = binomial("logit"), data = dat)
+  med1 = mediate(mod1, mod2, covariates = list(h_c_sex = "Female"),
+        treat="apap_detect", mediator="ENSG00000136689", boot = FALSE,   
+                            sims = 1000)
+  
+}
+
+#saveRDS(mice_med_res, "mice_med_res_ENSG00000136689.RDS")
+mice_med_res = readRDS("mice_med_res_ENSG00000136689.RDS")
+p_vals = foreach(i = 1:100, .combine = "c") %do% {
+  dat = mice_med_res[[i]]
+  dat$d1.p
+}
+median(p_vals)
+
+# for some horrible reason the list has to be named, each element with a distinct name...in order to get a summary from amelidiate
+mice_med_res <- setNames(mice_med_res, paste0("a",as.character(1:100)))
+out = amelidiate(mice_med_res)
+summary(out)
+plot(out)
+# extract all components beacuse there is no broom method for this
+res = c(out$d0,
+        out$d1,
+        out$z0,
+        out$z1,
+        out$tau,
+        out$n0,
+        out$n1,
+        out$d.avg,
+        out$z.avg,
+        out$n.avg)
+lower = c(out$d0.ci[1],
+        out$d1.ci[1],
+        out$z0.ci[1],
+        out$z1.ci[1],
+        out$tau.ci[1],
+        out$n0.ci[1],
+        out$n1.ci[1],
+        out$d.avg.ci[1],
+        out$z.avg.ci[1],
+        out$n.avg.ci[1])
+
+upper = c(out$d0.ci[2],
+        out$d1.ci[2],
+        out$z0.ci[2],
+        out$z1.ci[2],
+        out$tau.ci[2],
+        out$n0.ci[2],
+        out$n1.ci[2],
+        out$d.avg.ci[2],
+        out$z.avg.ci[2],
+        out$n.avg.ci[2])
+
+
+med_res_final = tibble(term = c("ACME (control)","ACME (treated)","ADE (control)","ADE (treated)","Total Effect","Prop. Mediated (control)","Prop. Mediated (treated)","ACME (average)","ADE (average)","Prop. Mediated (average)"),estimate = res, lower = lower, upper = upper)
+
+write_csv(med_res_final, "final mediation ENSG00000136689 100 datasets 1000 sims.csv")
+
+```

@@ -1,0 +1,224 @@
+---
+title: "Untitled"
+output: html_document
+date: "2023-08-25"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(tidyverse)
+# we have 7 total apap metaoblites that were sent in separate files
+apap_data_new = read_csv("./acetaminophen candle/M1_3_more_metabolites.csv") %>% 
+  dplyr::rename(apap_2_methoxy_glu = X33161,
+                apap_2_methoxy_sul = X47031,
+                apap_3_methylthio_sul = X62567)
+apap_data = read_csv("./acetaminophen candle/M1_4_metabolites.csv") %>% left_join(apap_data_new)
+apap_data = apap_data %>% mutate_at(2:8, ~log2(.))
+
+# Predictor variable will be apap_detect. If any metabolites are detected, you are counted as exposed
+apap_data_0s = apap_data
+apap_data_0s[is.na(apap_data_0s)]<-0
+
+apap_data_0s = apap_data_0s %>% 
+  mutate(sum1 = apap+apap_glu+apap_sul+hydroxy_apap_sul+apap_2_methoxy_glu+apap_2_methoxy_sul+apap_3_methylthio_sul) %>% 
+  mutate(apap_detect = ifelse(sum1 == 0, "No", "Yes")) %>% 
+  mutate(apap_detect = factor(apap_detect))
+
+apap_vars = c("apap_detect", "apap_apap_detect", "apap_glu_detect", "apap_sul_detect", "hydroxy_apap_sul_detect", "apap", "apap_glu", "apap_sul", "hydroxy_apap_sul")
+apap_vars_detect = c("apap_detect", "apap_apap_detect", "apap_glu_detect", "apap_sul_detect", "hydroxy_apap_sul_detect", "self_or_metab")
+
+apap_data_0s %>% group_by(apap_detect) %>% summarize(n=n()) %>% 
+  mutate(percent = 100*(n/sum(n)))
+
+outcomes = c("p1_internalrawscore","p1_internal_tscore", "p1_externalrawscore", "p1_external_tscore","p1_dsm_adhd_score","p1_dsm_adhd_tscore","p1_attprob_score","p1_attprob_tscore", "fl_agecor_st_score", "flanker_valid","digit_scale", "digit_valid", "child_age_p1", "healthbehv_q2_addadhd", "healthbehv_q2_asdpdd", "h_birthweight_g", "h_birth_gestage_wks", "healthbehv_q2h_med", "healthbehv_q2h_med_Methylphenidate", "healthbehv_q2h_med_Focalin", "healthbehv_q2h_med_Vyvanse", "healthbehv_q2h_med_Amphetamine", "healthbehv_q2h_med_Adderall", "healthbehv_q2h_med_Dexedrine", "healthbehv_q2h_med_Dextroamphetamine", "healthbehv_q2h_med_Atomoxetine", "healthbehv_q2h_med_Guanfacine", "healthbehv_q2h_med_Clonidine", "healthbehv_q2h_med_other", "healthbehv_q2h_med_dk")
+
+
+vars = c("h_m_race", "h_c_sex" , "h_m_enroll_age" , "h_m_enroll_educ" , "h_rpp_adj_income" , "zavg5_us_doc_dob_wght" , "h_m_ethn" , "h_del_method" ,"h_gravidity", "cg_labor_type", "h_m_prepreg_bmi" , "cotinine_yn_m2", "h_m_alcohol_prenatal", "h_m_enroll_smoke", "healthbehv_q2h", "healthbehv_q2h_age", "healthbehv_q9", "m1mb_anlgscs", "h_birth_gestage_wks", "h_birthweight_g", "m1mb_nsaids", "m1mb_antibiotcs")
+
+# read in the ECHO PATHWAYS covariate data and join the CANDLE metabolomics data
+data = read_csv("./acetaminophen candle/p0107_data2.csv") %>% dplyr::select("pathways_id", "studyid", outcomes, vars) %>% 
+  left_join(apap_data_0s)
+
+# maternal smoke
+#replace NAs because they mess up ifelse
+data = data %>%
+  mutate(cotinine_yn_m2 = replace_na(data$cotinine_yn_m2, 999))%>%
+  mutate(h_m_enroll_smoke = replace_na(h_m_enroll_smoke, 999))
+
+data = data %>% mutate(maternal_tobacco = ifelse(cotinine_yn_m2 == 1 | h_m_enroll_smoke == 1, 1, h_m_enroll_smoke))
+
+#now if one col is na(999) and the other col is no (0), set maternal tobacco to 0
+# also there is one instance where enroll = 2 (i assume they answered with dont know) and the cotinine var  = 0, so set that to 0
+data = data %>% 
+  mutate(maternal_tobacco = ifelse(cotinine_yn_m2 == 0 & h_m_enroll_smoke == 999, 0, maternal_tobacco))%>%
+  mutate(maternal_tobacco = ifelse(cotinine_yn_m2 == 999 & h_m_enroll_smoke == 0, 0, maternal_tobacco))%>%
+  mutate(maternal_tobacco = ifelse(cotinine_yn_m2 == 0 & h_m_enroll_smoke == 2, 0, maternal_tobacco))
+
+#label yes no
+data = data %>%   mutate(maternal_tobacco = case_when(maternal_tobacco == 0 ~ "No",
+                                                    maternal_tobacco == 1 ~ "Yes")) %>% 
+  mutate(maternal_tobacco = as.factor(maternal_tobacco))
+
+
+#prenatal alcohol
+data$h_m_alcohol_prenatal <- factor(data$h_m_alcohol_prenatal,
+levels = c(0,1),
+labels = c("No", "Yes"))
+
+data$h_c_sex <- factor(data$h_c_sex,
+levels = c("M", "F"),
+labels = c("Male", "Female"))
+
+# maternal race
+data$h_m_race <- factor(data$h_m_race,
+levels = c(1,2,3,4,5,6,7),
+labels = c("White",
+           "Black/African American",
+           "Asian",
+           "Native Hawaiian/Other Pacific Islander",
+           "American Indian/Alaska Native",
+           "Multiple Race",
+           "Other"))
+
+
+#replacing this prefer not to answer/dont know with NA to be imputed later
+data = data %>% mutate(h_m_ethn = na_if(h_m_ethn, 8888))
+
+# adhd diagnosis
+data = data %>% mutate(healthbehv_q9 = na_if(healthbehv_q9, 8888))
+
+# maternal ethnicity
+data$h_m_ethn <- factor(data$h_m_ethn,
+levels = c(0,1),
+labels = c("Not Hispanic/Latino",
+           "Hispanic/Latino"))
+#only 2 dont knows. collapsing with NA so they get imputed
+data = data %>% mutate(h_m_ethn = na_if(h_m_ethn, "Do not know/Prefer not to answer"))
+
+
+# labor type
+data$cg_labor_type <- factor(data$cg_labor_type,
+levels = c(1,2,3,4),
+labels = c("Spontaneous",
+           "Spontaneous, augmented",
+           "Induced",
+           "No Labor"))
+
+# delivery method
+data$h_del_method <- factor(data$h_del_method,
+levels = c(1,2),
+labels = c("Vaginal",
+           "C-section"))
+
+#maternal education
+data$h_m_enroll_educ <- factor(data$h_m_enroll_educ,
+levels = c(1,2,3,4),
+labels = c("<High School",
+           "High School completion",
+           "Graduated college or technical school",
+           "Some graduate work or graduate/professional degree"))
+
+
+# Remove those missing the apap_detect variable
+# We also have data on self reported analgesics use in pregnancy, but not specific to acetaminophen (a yes response to this question could include any pain medication).
+data2 = data %>% filter(!is.na(apap_detect)) %>% 
+  mutate(self_or_metab = apap_detect)
+self_report_ids = data2 %>% filter(m1mb_anlgscs == 1) %>% pull(pathways_id)
+
+# This makes a variable that is coded as yes if apap metabolites are detected or if the mother self reported analgesics.
+data2$self_or_metab[data2$pathways_id %in% self_report_ids]<-"Yes"
+
+# Label the adhd medications outcome variable as yes vs no
+data2 = data2 %>% mutate(adhd_med = ifelse(healthbehv_q2h_med == 1, "Yes", "No"))
+
+
+data_mi = data2 %>%
+  dplyr::select(pathways_id, healthbehv_q2_addadhd, adhd_med, p1_dsm_adhd_score, p1_externalrawscore, apap_detect , h_m_race, h_c_sex , h_m_enroll_age , h_m_enroll_educ , h_rpp_adj_income , zavg5_us_doc_dob_wght , h_m_ethn , h_del_method ,h_gravidity, cg_labor_type, h_m_prepreg_bmi , maternal_tobacco , h_m_alcohol_prenatal, healthbehv_q9, m1mb_nsaids, h_birthweight_g, h_birth_gestage_wks, m1mb_antibiotcs, self_or_metab, child_age_p1, fl_agecor_st_score, digit_scale, digit_valid, flanker_valid) %>% 
+  filter(!is.na(healthbehv_q2_addadhd))%>% 
+  mutate(adhd_med = replace_na(adhd_med, "No")) %>% 
+  mutate(adhd_med = as.factor(adhd_med))
+
+
+summary(data_mi)
+data_mi = data_mi %>% 
+  mutate(healthbehv_q2_addadhd = as.factor(healthbehv_q2_addadhd)) %>% 
+  mutate(h_m_race = as.character(h_m_race))%>% 
+  mutate(h_m_race = as.factor(h_m_race)) %>% 
+  mutate(healthbehv_q9 = as.factor(healthbehv_q9),
+         m1mb_nsaids = as.factor(m1mb_nsaids),
+         m1mb_antibiotcs = as.factor(m1mb_antibiotcs)) %>% 
+  mutate(h_m_enroll_educ = relevel(h_m_enroll_educ,"High School completion"),
+         h_m_race = relevel(h_m_race,"Black/African American"),
+         h_m_ethn = relevel(h_m_ethn,"Not Hispanic/Latino"),
+         h_del_method = relevel(h_del_method,"Vaginal"),
+         cg_labor_type = relevel(cg_labor_type,"Spontaneous, augmented"),
+         maternal_tobacco = relevel(maternal_tobacco,"No"),
+         h_m_alcohol_prenatal = relevel(h_m_alcohol_prenatal,"No"),
+         h_c_sex = relevel(h_c_sex,"Female")) 
+
+
+# add stress data. prams_sum_score is maternal stressful life experiences during pregnancy, which we include as a confounder
+data_stress = read_csv("O:/Maternal stress placental transcriptome/p0094_data_v2.csv") %>% 
+  dplyr::select(pathways_id, prams_sum_score)
+
+data_mi = data_mi %>% left_join(data_stress)
+# this will be used later to get the rna sequencing subsample
+data_mi_rna = data_mi
+#saveRDS(data_mi, "data_mi_307.RDS")
+```
+
+```{r}
+library(mice)
+set.seed(2023)
+data_mice = mice(data_mi, m = 100, maxit = 10)
+summary(data_mice)
+#saveRDS(data_mice, "data_mice_307.RDS")
+```
+
+to impute sex stratified
+```{r}
+data_mi_male = data_mi %>% filter(h_c_sex == "Male")
+data_mi_female = data_mi %>% filter(h_c_sex == "Female")
+
+library(mice)
+set.seed(2023)
+data_mice_male = mice(data_mi_male, m = 100, maxit = 10)
+set.seed(2023)
+data_mice_female = mice(data_mi_female, m = 100, maxit = 10)
+data_mice = rbind(data_mice_male, data_mice_female)
+data_mice_long <- complete(data_mice, action = "long", include = TRUE)
+
+#saveRDS(data_mice, "data_mice_307_sex_strat.RDS")
+```
+
+
+now get sample for rna seq
+```{r}
+load("O:/Maternal stress placental transcriptome/candle_20200226.Rdata")
+candlebatches <- batches
+annot$ENSEMBL <- as.character(annot$ENSEMBL)
+annot$ENTREZID <- mapIds(org.Hs.eg.db, annot$ENSEMBL, "ENTREZID","ENSEMBL")
+protcode <- c("protein_coding","polymorphic_pseudogene", "lncRNA",
+              grep("IG_[A-Z]_gene", names(table(annot$BIOTYPE)), value = TRUE),
+              grep("TR_[A-Z]_gene", names(table(annot$BIOTYPE)), value = TRUE))
+protind <- annot$BIOTYPE %in% protcode
+
+
+## get counts and annotation and put in a DGEList
+
+candlects <- candle_lengthScaledTPM$counts
+candlects <- candlects[protind,]
+annot <- annot[protind,]
+
+candlebatches = candlebatches %>% mutate(pathways_id = colnames(candlects)) %>% dplyr::select(pathways_id, Analysis) %>% 
+  dplyr::rename(batch = Analysis)
+
+# filter for sample with data
+data_mi_rna = data_mi_rna %>% left_join(candlebatches) %>% 
+  filter(!is.na(batch)) %>% 
+  mutate(batch = as.factor(batch))
+data_mi_rna %>% group_by(apap_detect) %>% summarize(n=n())
+saveRDS(data_mi_rna, "data_mi_rna.RDS")
+```
+

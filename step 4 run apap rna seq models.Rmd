@@ -1,0 +1,120 @@
+---
+title: "Untitled"
+output: html_document
+date: "2023-10-24"
+editor_options: 
+  chunk_output_type: console
+---
+
+---
+title: "Untitled"
+output: html_document
+date: "2023-10-17"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(tidyverse)
+library(RNAseqCovarImpute)
+library(edgeR)
+library(BiocStyle)
+library(xtable)
+library(tximport)
+library(Glimma)
+library(org.Hs.eg.db)
+library(tidyverse)
+library(RNAseqCovarImpute)
+library(BiocParallel)
+data_mi_rna = readRDS("data_mi_rna.RDS")
+alldg_full = readRDS("alldg_full_174.RDS")
+```
+
+rnaseq covarimpute for single genes, effect of apap among females first.
+```{r}
+data_mi_rna = data_mi_rna %>% dplyr::select(apap_detect,h_c_sex,prams_sum_score , h_m_enroll_age , h_m_enroll_educ , h_rpp_adj_income , zavg5_us_doc_dob_wght , h_m_ethn ,  h_gravidity,h_del_method,cg_labor_type, h_m_prepreg_bmi , maternal_tobacco , h_m_alcohol_prenatal , healthbehv_q9, m1mb_nsaids , m1mb_antibiotcs, batch)
+
+intervals = get_gene_bin_intervals(alldg_full, data_mi_rna, n=5)
+
+start1 = Sys.time()
+set.seed(2023)
+gene_bin_impute_apap = impute_by_gene_bin(data_mi_rna, intervals, alldg_full, m = 10, BPPARAM = bpparam())
+saveRDS(gene_bin_impute_apap, "gene_bin_impute_10_apap_174.RDS")
+end1 = Sys.time()
+print(end1-start1)
+
+adj_formula_apap = "~apap_detect*h_c_sex+prams_sum_score + h_m_enroll_age + h_m_enroll_educ + h_rpp_adj_income + zavg5_us_doc_dob_wght + h_m_ethn + h_del_method +h_gravidity+ cg_labor_type+ h_m_prepreg_bmi + maternal_tobacco + h_m_alcohol_prenatal + healthbehv_q9+ m1mb_nsaids + m1mb_antibiotcs + batch"
+
+start1 = Sys.time()
+set.seed(2023)
+all_coef_se_adj_apap = limmavoom_imputed_data_list(gene_intervals = intervals, DGE = alldg_full, imputed_data_list =gene_bin_impute_apap, m = 10, voom_formula = adj_formula_apap)
+end1 = Sys.time()
+print(end1 - start1)
+saveRDS(all_coef_se_adj_apap, "all_coef_se_adj_apap_174_by_sex.RDS")
+
+rubins_res_adj_apap_sex = combine_rubins(alldg_full, all_coef_se_adj_apap, predictor = "apap_detectYes:h_c_sexMale") %>% arrange(combined_p_bayes)
+rubins_res_adj_apap = combine_rubins(alldg_full, all_coef_se_adj_apap, predictor = "apap_detectYes") %>% arrange(combined_p_bayes)
+
+
+rubins_res_adj_apap_sex = rubins_res_adj_apap_sex %>% dplyr::rename(ENSEMBL=probe) %>%  left_join(alldg_full$genes)
+rubins_res_adj_apap = rubins_res_adj_apap %>% dplyr::rename(ENSEMBL=probe) %>%  left_join(alldg_full$genes)
+write_csv(rubins_res_adj_apap, "rubins_res_adj_apap_174_by_sex_apap_effect_females.csv")
+write_csv(rubins_res_adj_apap_sex, "rubins_res_adj_apap_174_by_sex_interaction_effect_females.csv")
+
+rubins_res_adj_apap %>% filter(combined_p_adj_bayes<0.1)
+```
+
+Effect of apap among males
+```{r}
+data_mi_rna = data_mi_rna %>% mutate(h_c_sex = relevel(h_c_sex, "Male"))
+intervals = get_gene_bin_intervals(alldg_full, data_mi_rna, n=5)
+
+start1 = Sys.time()
+set.seed(2023)
+gene_bin_impute_apap = impute_by_gene_bin(data_mi_rna, intervals, alldg_full, m = 10, BPPARAM = bpparam())
+saveRDS(gene_bin_impute_apap, "gene_bin_impute_10_apap_174_male.RDS")
+end1 = Sys.time()
+print(end1-start1)
+
+adj_formula_apap = "~apap_detect*h_c_sex+prams_sum_score + h_m_enroll_age + h_m_enroll_educ + h_rpp_adj_income + zavg5_us_doc_dob_wght + h_m_ethn + h_del_method +h_gravidity+ cg_labor_type+ h_m_prepreg_bmi + maternal_tobacco + h_m_alcohol_prenatal + healthbehv_q9+ m1mb_nsaids + m1mb_antibiotcs + batch"
+
+start1 = Sys.time()
+all_coef_se_adj_apap = limmavoom_imputed_data_list(gene_intervals = intervals, DGE = alldg_full, imputed_data_list =gene_bin_impute_apap, m = 10, voom_formula = adj_formula_apap)
+end1 = Sys.time()
+print(end1 - start1)
+saveRDS(all_coef_se_adj_apap, "all_coef_se_adj_apap_174_by_sex_male.RDS")
+
+rubins_res_adj_apap_sex = combine_rubins(alldg_full, all_coef_se_adj_apap, predictor = "apap_detectYes:h_c_sexMale") %>% arrange(combined_p_bayes)
+rubins_res_adj_apap = combine_rubins(alldg_full, all_coef_se_adj_apap, predictor = "apap_detectYes") %>% arrange(combined_p_bayes)
+
+
+rubins_res_adj_apap_sex = rubins_res_adj_apap_sex %>% dplyr::rename(ENSEMBL=probe) %>%  left_join(alldg_full$genes)
+rubins_res_adj_apap = rubins_res_adj_apap %>% dplyr::rename(ENSEMBL=probe) %>%  left_join(alldg_full$genes)
+write_csv(rubins_res_adj_apap, "rubins_res_adj_apap_174_by_sex_apap_effect_males.csv")
+write_csv(rubins_res_adj_apap_sex, "rubins_res_adj_apap_174_by_sex_interaction_effect_males.csv")
+rubins_res_adj_apap %>% filter(combined_p_adj_bayes<0.1)
+```
+
+Effect of APAP with no sex interaction
+```{r}
+data_mi_rna = data_mi_rna %>% dplyr::select(apap_detect,h_c_sex,prams_sum_score , h_m_enroll_age , h_m_enroll_educ , h_rpp_adj_income , zavg5_us_doc_dob_wght , h_m_ethn ,  h_gravidity,h_del_method,cg_labor_type, h_m_prepreg_bmi , maternal_tobacco , h_m_alcohol_prenatal , healthbehv_q9, m1mb_nsaids , m1mb_antibiotcs, batch)
+
+intervals = get_gene_bin_intervals(alldg_full, data_mi_rna, n=5)
+
+gene_bin_impute_apap = readRDS("gene_bin_impute_10_apap_174.RDS")
+
+adj_formula_apap = "~apap_detect+h_c_sex+prams_sum_score + h_m_enroll_age + h_m_enroll_educ + h_rpp_adj_income + zavg5_us_doc_dob_wght + h_m_ethn + h_del_method +h_gravidity+ cg_labor_type+ h_m_prepreg_bmi + maternal_tobacco + h_m_alcohol_prenatal + healthbehv_q9+ m1mb_nsaids + m1mb_antibiotcs + batch"
+
+start1 = Sys.time()
+all_coef_se_adj_apap = limmavoom_imputed_data_list(gene_intervals = intervals, DGE = alldg_full, imputed_data_list =gene_bin_impute_apap, m = 10, voom_formula = adj_formula_apap)
+end1 = Sys.time()
+print(end1 - start1)
+#saveRDS(all_coef_se_adj_apap, "all_coef_se_adj_apap_174_by_sex_no_int.RDS")
+all_coef_se_adj_apap = readRDS("O:/acetaminophen candle/all_coef_se_adj_apap_174_by_sex2_no_int.RDS")
+
+
+rubins_res_adj_apap = combine_rubins(alldg_full, all_coef_se_adj_apap, predictor = "apap_detectYes") %>% arrange(combined_p_bayes)
+rubins_res_adj_apap = rubins_res_adj_apap %>% dplyr::rename(ENSEMBL=probe) %>%  left_join(alldg_full$genes)
+write_csv(rubins_res_adj_apap, "rubins_res_adj_apap_174_by_sex_apap_effect_no_int.csv")
+rubins_res_adj_apap %>% filter(combined_p_adj_bayes<0.1)
+```
