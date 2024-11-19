@@ -1,1 +1,2 @@
 # apap_adhd_placental_transcriptome
+Representative code for the analyses are included, although data cannot be shared through this platform. The RNA-sequencing data utilized in this study are available at the database of Genotypes and Phenotypes (dbGaP) study accession phs003619.v1.p1. The covariate data utilized for this study contain protected health information and are not publicly available, but de-identified data may be available on request.
